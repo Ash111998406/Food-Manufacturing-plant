@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Singju Factory — 3D Layout</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { overflow:hidden; background:#050a10; font-family:'Segoe UI',Arial,sans-serif; touch-action:none; }
+canvas { display:block; }
+
+/* ── Side panels (desktop only) ── */
+.panel {
+  position:absolute; background:rgba(4,8,15,0.93);
+  border:1px solid rgba(255,255,255,0.07); border-radius:10px;
+  padding:10px 14px; color:#cfd8dc; pointer-events:none;
+}
+#hdr {
+  top:10px; left:50%; transform:translateX(-50%);
+  text-align:center; border-radius:22px; padding:6px 16px;
+  border-color:rgba(79,195,247,0.3); white-space:nowrap; z-index:10;
+}
+#hdr h1 { font-size:12px; color:#4fc3f7; }
+#hdr p  { font-size:9px; color:#546e7a; margin-top:1px; }
+#ctl { bottom:96px; right:12px; font-size:10px; }
+#ctl div { margin:2px 0; color:#37474f; }
+#ctl span { color:#546e7a; }
+
+/* ── Tap hint bar ── */
+#hint {
+  position:fixed; bottom:0; left:0; right:0;
+  text-align:center; padding:10px;
+  font-size:12px; color:#4fc3f7;
+  background:rgba(4,8,15,0.7);
+  pointer-events:none; z-index:50;
+  transition:opacity 0.6s;
+}
+#hint.gone { opacity:0; }
+
+/* ── Tap popup ── */
+#popup {
+  position:fixed; bottom:0; left:50%;
+  transform:translateX(-50%) translateY(100%);
+  transition:transform 0.28s cubic-bezier(.22,.68,0,1.2);
+  width:min(460px, 96vw);
+  background:rgba(4,8,15,0.98);
+  border-top:3px solid var(--hc, #4fc3f7);
+  border-left:1px solid rgba(255,255,255,0.09);
+  border-right:1px solid rgba(255,255,255,0.09);
+  border-radius:18px 18px 0 0;
+  padding:16px 20px 32px;
+  pointer-events:none;
+  z-index:80;
+}
+#popup.show { transform:translateX(-50%) translateY(0); }
+#popup .pname {
+  display:block; font-size:16px; font-weight:700;
+  color:var(--hc,#4fc3f7); margin-bottom:7px; line-height:1.3;
+}
+#popup .pdesc {
+  display:block; font-size:11.5px; color:#90a4ae; line-height:1.55; margin-bottom:6px;
+}
+#popup .pbudget {
+  display:block; font-size:10.5px; color:#a5d6a7;
+}
+#popup .ptip {
+  display:block; font-size:9px; color:#37474f; margin-top:10px; text-align:center;
+}
+
+/* ── Mobile ── */
+@media (max-width:700px) {
+  #ctl { display:none; }
+  #hdr { max-width:92vw; white-space:normal; text-align:center; }
+  #hdr h1 { font-size:11px; }
+}
+</style>
+</head>
+<body>
+
+<div class="panel" id="hdr">
+  <h1>Singju Factory &nbsp;|&nbsp; WET Prep (Left) &nbsp;&#8596;&nbsp; DRY Packaging (Right)</h1>
+  <p>40&times;80 ft &nbsp;&middot;&nbsp; U-flow: cabbage in &rarr; down left &rarr; pass-through &rarr; up right &rarr; dispatch</p>
+</div>
+
+
+<div class="panel" id="ctl">
+  <div><span>Drag</span> &mdash; Rotate</div>
+  <div><span>Pinch</span> &mdash; Zoom</div>
+  <div><span>Tap zone</span> &mdash; Identify</div>
+</div>
+
+<div id="hint">Tap any coloured zone to identify it</div>
+
+<div id="popup">
+  <span class="pname" id="pname"></span>
+  <span class="pdesc" id="pdesc"></span>
+  <span class="pbudget" id="pbudget"></span>
+  <span class="ptip">Tap same zone again to close &nbsp;&middot;&nbsp; Tap another zone to switch</span>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+// Building: X -20..+20, Z -40..+40 (front=+40), Y=up
+// WET ZONE: X -20..0 (cx=-10)   DRY ZONE: X 0..+20 (cx=+10)
+
+var scene = new THREE.Scene();
+scene.background = new THREE.Color(0x050a10);
+
+var camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 600);
+camera.position.set(0, 130, 100);
+
+var renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+document.body.appendChild(renderer.domElement);
+
+var orb = new THREE.OrbitControls(camera, renderer.domElement);
+orb.enableDamping = true; orb.dampingFactor = 0.08;
+orb.maxPolarAngle = Math.PI / 2.05;
+orb.minDistance = 18; orb.maxDistance = 280;
+orb.target.set(0, 3, 0); orb.update();
+
+// ── Lights (no shadows) ───────────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+var sun = new THREE.DirectionalLight(0xfff8f0, 0.85);
+sun.position.set(55, 90, 65);
+scene.add(sun);
+var fill = new THREE.DirectionalLight(0x90caf9, 0.22);
+fill.position.set(-55, 40, -60);
+scene.add(fill);
+var under = new THREE.DirectionalLight(0x263238, 0.15);
+under.position.set(0, -1, 0);
+scene.add(under);
+
+var WH = 11;
+
+// ── Geometry helpers ──────────────────────────────────────────────────────────
+function mkBox(w, h, d, col) {
+  return new THREE.Mesh(new THREE.BoxGeometry(w, h, d),
+    new THREE.MeshLambertMaterial({ color: col }));
+}
+function mkCyl(r, h, col) {
+  return new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 18),
+    new THREE.MeshLambertMaterial({ color: col }));
+}
+function mkFrus(rTop, rBot, h, col) {
+  return new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, 18),
+    new THREE.MeshLambertMaterial({ color: col }));
+}
+function mkDome(r, col) {
+  return new THREE.Mesh(
+    new THREE.SphereGeometry(r, 18, 9, 0, Math.PI*2, 0, Math.PI/2),
+    new THREE.MeshLambertMaterial({ color: col, transparent: true, opacity: 0.6 }));
+}
+function mkDisc(r, h, col) {
+  return new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 22),
+    new THREE.MeshLambertMaterial({ color: col }));
+}
+
+// Helper: 4 cylindrical table legs
+function addLegs(tx, tz, tw, td, lh, col) {
+  var lc = col || 0x607d8b;
+  var ox = tw/2 - 0.25, oz = td/2 - 0.25;
+  [[ox,oz],[ox,-oz],[-ox,oz],[-ox,-oz]].forEach(function(o) {
+    var leg = mkCyl(0.08, lh, lc);
+    leg.position.set(tx+o[0], lh/2+0.26, tz+o[1]);
+    scene.add(leg);
+  });
+}
+
+// Helper: open pallet / drying rack frame
+function addRack(x, z, w, d, totalH, shelves, postCol, shelfCol) {
+  [[w/2-0.1,d/2-0.1],[w/2-0.1,-d/2+0.1],[-w/2+0.1,d/2-0.1],[-w/2+0.1,-d/2+0.1]].forEach(function(o){
+    var up = mkBox(0.12, totalH, 0.12, postCol||0x5d4037);
+    up.position.set(x+o[0], totalH/2+0.26, z+o[1]); scene.add(up);
+  });
+  for (var s = 0; s < shelves; s++) {
+    var sy = 0.26 + totalH/(shelves) * (s+0.85);
+    var sh = mkBox(w-0.3, 0.08, d-0.3, shelfCol||0x795548);
+    sh.position.set(x, sy, z); scene.add(sh);
+  }
+}
+
+// ── Zone floors (interactive) ─────────────────────────────────────────────────
+var zoneFloors = [];
+
+function addZone(z) {
+  var geo = new THREE.BoxGeometry(z.w||20, 0.25, z.d||13);
+  var mat = new THREE.MeshLambertMaterial({ color:z.fc, transparent:true, opacity:0.92 });
+  var mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(z.cx, 0.13, z.cz);
+  mesh.userData.zone = z;
+  scene.add(mesh);
+  zoneFloors.push(mesh);
+
+  // Edge glow
+  var el = new THREE.LineSegments(new THREE.EdgesGeometry(geo),
+    new THREE.LineBasicMaterial({ color:0xffffff, transparent:true, opacity:0.07 }));
+  el.position.set(z.cx, 0.13, z.cz);
+  scene.add(el);
+
+  // Equipment (scene-only, not interactive)
+  (z.eq||[]).forEach(function(eq) {
+    var m;
+    if      (eq.t==='box')  m = mkBox(eq.w, eq.h, eq.d, eq.c);
+    else if (eq.t==='cyl')  m = mkCyl(eq.r, eq.h, eq.c);
+    else if (eq.t==='frus') m = mkFrus(eq.rt, eq.rb, eq.h, eq.c);
+    else if (eq.t==='dome') m = mkDome(eq.r, eq.c);
+    else if (eq.t==='disc') m = mkDisc(eq.r, eq.h, eq.c);
+    if (!m) return;
+    var py = (eq.y!==undefined) ? eq.y
+           : (eq.t==='dome')    ? eq.r+0.26
+           :                     (eq.h/2+0.26);
+    m.position.set(eq.x, py, eq.z);
+    scene.add(m);
+  });
+}
+
+// ── Floors ────────────────────────────────────────────────────────────────────
+var wf = mkBox(20,0.2,80,0x0c1c2e); wf.position.set(-10,0.1,0); scene.add(wf);
+var df = mkBox(20,0.2,80,0x1a1410); df.position.set( 10,0.1,0); scene.add(df);
+var grid = new THREE.GridHelper(80,40,0x182030,0x182030); grid.position.set(0,0.22,0); scene.add(grid);
+var wt = mkBox(20,0.04,80,0x1040a0); wt.material.transparent=true; wt.material.opacity=0.1;
+wt.position.set(-10,0.23,0); scene.add(wt);
+var drain = mkBox(0.8,0.07,68,0x0a4a8a); drain.material.transparent=true; drain.material.opacity=0.8;
+drain.position.set(-1.8,0.26,-3); scene.add(drain);
+for (var dz=22; dz>-42; dz-=3.5) {
+  var dg = mkBox(0.78,0.04,0.1,0x1565c0); dg.position.set(-1.8,0.33,dz); scene.add(dg);
+}
+
+// ── Outer walls ───────────────────────────────────────────────────────────────
+var wallMat = new THREE.MeshLambertMaterial({color:0x37474f,transparent:true,opacity:0.28,side:THREE.DoubleSide});
+var edgeMat = new THREE.LineBasicMaterial({color:0x546e7a,transparent:true,opacity:0.6});
+function addWall(wx,wz,px,pz) {
+  var g=new THREE.BoxGeometry(wx,WH,wz);
+  var m=new THREE.Mesh(g,wallMat); m.position.set(px,WH/2,pz); scene.add(m);
+  var e=new THREE.LineSegments(new THREE.EdgesGeometry(g),edgeMat); e.position.set(px,WH/2,pz); scene.add(e);
+}
+addWall(40,0.3,0, 40); addWall(40,0.3,0,-40);
+addWall(0.3,80,-20,0); addWall(0.3,80, 20,0);
+var rg=new THREE.BoxGeometry(40,0.2,80);
+var rm=new THREE.Mesh(rg,new THREE.MeshLambertMaterial({color:0x37474f,transparent:true,opacity:0.04}));
+rm.position.y=WH; scene.add(rm);
+var re=new THREE.LineSegments(new THREE.EdgesGeometry(rg),
+  new THREE.LineBasicMaterial({color:0x546e7a,transparent:true,opacity:0.18}));
+re.position.y=WH; scene.add(re);
+
+// ── Center glass partition ─────────────────────────────────────────────────────
+var glMat=new THREE.MeshLambertMaterial({color:0x80cbc4,transparent:true,opacity:0.14,side:THREE.DoubleSide});
+var glEdge=new THREE.LineBasicMaterial({color:0x4dd0e1,transparent:true,opacity:0.45});
+function addGlass(d,cz) {
+  var g=new THREE.BoxGeometry(0.22,WH,d);
+  var m=new THREE.Mesh(g,glMat); m.position.set(0,WH/2,cz); scene.add(m);
+  var e=new THREE.LineSegments(new THREE.EdgesGeometry(g),glEdge); e.position.set(0,WH/2,cz); scene.add(e);
+}
+addGlass(15,32.5); addGlass(52,-1.0); addGlass(3,-38.5);
+// Pass-through window frame
+var ptc=0x4dd0e1;
+var lintel=mkBox(0.8,2.0,7,ptc); lintel.material.transparent=true; lintel.material.opacity=0.65;
+lintel.position.set(0,WH-1,-33.5); scene.add(lintel);
+var sill=mkBox(0.8,0.35,7,ptc); sill.material.transparent=true; sill.material.opacity=0.65;
+sill.position.set(0,0.43,-33.5); scene.add(sill);
+[-30.15,-36.85].forEach(function(z){
+  var j=mkBox(0.8,WH,0.35,ptc); j.material.transparent=true; j.material.opacity=0.35;
+  j.position.set(0,WH/2,z); scene.add(j);
+});
+
+// ── Front separators ──────────────────────────────────────────────────────────
+var sepMat=new THREE.MeshLambertMaterial({color:0x37474f,transparent:true,opacity:0.16,side:THREE.DoubleSide});
+var sepEdge=new THREE.LineBasicMaterial({color:0x546e7a,transparent:true,opacity:0.32});
+function addSep(wx,wz,px,pz){
+  var g=new THREE.BoxGeometry(wx,WH,wz);
+  var m=new THREE.Mesh(g,sepMat); m.position.set(px,WH/2,pz); scene.add(m);
+  var e=new THREE.LineSegments(new THREE.EdgesGeometry(g),sepEdge); e.position.set(px,WH/2,pz); scene.add(e);
+}
+addSep(40,0.22,0,25); addSep(20,0.2,10,30.5);
+
+// ── Zone definitions ──────────────────────────────────────────────────────────
+var ZONES = [
+  {
+    name:'(A) Employee & Change Room', fc:0x101828, hc:'#90caf9',
+    cx:-10, cz:32.5, w:20, d:15,
+    desc:'Staff entry, uniform change, hair net, gloves. Handwash sinks with anti-bacterial soap. Disinfection mat. No public access. FSSAI GMP requirement.',
+    budget:'Sinks x2 Rs.6K | Locker Rs.3K | Disinfect mat Rs.1K | UV lamp Rs.2K',
+    eq:[
+      { t:'cyl',  n:'Sink Pedestal A',   x:-17, z:38,    r:0.2,  h:0.9,              c:0x9e9e9e },
+      { t:'frus', n:'Handwash Sink A',   x:-17, z:38,    rt:0.55,rb:0.35,h:0.45,     c:0xeceff1, y:1.18 },
+      { t:'cyl',  n:'Tap A',             x:-17, z:37.65, r:0.05, h:0.45,              c:0xb0bec5, y:1.7 },
+      { t:'cyl',  n:'Sink Pedestal B',   x:-14, z:38,    r:0.2,  h:0.9,              c:0x9e9e9e },
+      { t:'frus', n:'Handwash Sink B',   x:-14, z:38,    rt:0.55,rb:0.35,h:0.45,     c:0xeceff1, y:1.18 },
+      { t:'cyl',  n:'Tap B',             x:-14, z:37.65, r:0.05, h:0.45,              c:0xb0bec5, y:1.7 },
+      { t:'box',  n:'Locker Unit',       x:-18, z:29.5,  w:2,    h:6,   d:5,          c:0x455a64 },
+      { t:'box',  n:'Locker Handle',     x:-17.1,z:29.5, w:0.1,  h:0.3, d:0.15,       c:0x90a4ae, y:3.5 },
+      { t:'box',  n:'Changing Bench Top',x:-13, z:29.5,  w:4,    h:0.12,d:2,          c:0x546e7a, y:2.08 },
+      { t:'box',  n:'Disinfect Mat',     x: -5, z:25.5,  w:6,    h:0.15,d:1,          c:0x1a6040 },
+    ]
+  },
+  {
+    name:'(C) Office & Reception', fc:0x0a1628, hc:'#4fc3f7',
+    cx:10, cz:35, w:20, d:10,
+    desc:'Client reception, billing, and FSSAI documentation. Batch records and CoA certificates stored here. Clients and inspectors enter without accessing the factory floor. Air-conditioned.',
+    budget:'Reception desk Rs.8K | AC unit Rs.25K | Filing cabinet Rs.4K',
+    eq:[
+      { t:'box', n:'Reception Desk A',   x:14, z:38,    w:6,   h:0.12,d:2.5,         c:0x37474f, y:2.5 },
+      { t:'box', n:'Reception Desk B',   x:17, z:35.5,  w:2.5, h:0.12,d:5,           c:0x37474f, y:2.5 },
+      { t:'box', n:'Desk Front Panel',   x:14, z:36.8,  w:6,   h:2.38,d:0.1,         c:0x2e3c45, y:1.19 },
+      { t:'box', n:'Chair Seat',         x:11, z:37,    w:1.4, h:0.15,d:1.4,         c:0x263238, y:1.15 },
+      { t:'box', n:'Chair Back',         x:11, z:37.6,  w:1.4, h:1.5, d:0.12,        c:0x1c272e, y:1.95 },
+      { t:'cyl', n:'Chair Pedestal',     x:11, z:37,    r:0.2, h:1.0,                c:0x37474f },
+      { t:'box', n:'Filing Cabinet',     x:18, z:31.5,  w:2,   h:4,   d:2,           c:0x455a64 },
+      { t:'box', n:'Meeting Table Top',  x: 6, z:33,    w:5,   h:0.12,d:3,           c:0x3e2723, y:2.08 },
+    ]
+  },
+  {
+    name:'(B) Finished Goods Storage & Loading Bay', fc:0x1a1208, hc:'#ff8a65',
+    cx:10, cz:27.5, w:20, d:5,
+    desc:'Pallet racks for sealed Singju retail boxes ready for dispatch. Loading bay door connects to street. FIFO rotation. Phase 1: Manipur market. Phase 2: pan-India e-commerce.',
+    budget:'Pallet racks x3 Rs.12K | Hand truck Rs.3K',
+    eq:[]
+  },
+  {
+    name:'1. Receiving & Cold Storage', fc:0x0e2038, hc:'#42a5f5',
+    cx:-10, cz:18.5, w:20, d:13,
+    desc:'Fresh cabbage arrives at the left entry door. Weighed, inspected, and batch-logged. Immediately cold-stored at 2-4°C. FSSAI: max 4 hrs from farm to cold storage. FIFO green-crate rotation.',
+    budget:'Chest cooler Rs.28K | Weighing scale Rs.8K | Storage rack Rs.4K',
+    eq:[
+      { t:'box',  n:'Scale Platform',   x:-19, z:24,    w:2.5, h:0.15,d:2,           c:0xb0bec5 },
+      { t:'box',  n:'Scale Display',    x:-19.5,z:23,   w:0.2, h:1.2, d:0.5,         c:0x90a4ae, y:0.86 },
+      { t:'box',  n:'Cooler Body',      x:-16.5,z:20,   w:5.5, h:4,   d:5.5,         c:0x1565c0 },
+      { t:'box',  n:'Cooler Lid',       x:-16.5,z:20,   w:5.8, h:0.3, d:5.8,         c:0x0d47a1, y:4.41 },
+      { t:'box',  n:'Cooler Handle',    x:-16.5,z:17.2, w:2,   h:0.15,d:0.15,        c:0x90caf9, y:4.35 },
+      { t:'box',  n:'Cabbage Crate A',  x:-10, z:20.5,  w:3.2, h:1.8, d:2.8,         c:0x4caf50 },
+      { t:'box',  n:'Cabbage Crate B',  x: -6, z:20.5,  w:3.2, h:1.8, d:2.8,         c:0x388e3c },
+      { t:'box',  n:'Cabbage Crate C',  x:-10, z:20.5,  w:3,   h:0.8, d:2.6,         c:0x66bb6a, y:2.7 },
+      { t:'box',  n:'Cabbage Crate D',  x: -2, z:20,    w:2.8, h:1.8, d:2.8,         c:0x4caf50 },
+    ]
+  },
+  {
+    name:'2. Coarse Slicing / Mincer', fc:0x102818, hc:'#a5d6a7',
+    cx:-10, cz:5.5, w:20, d:13,
+    desc:'Electric SS vegetable slicer set for 2-3 mm finger-strip cuts — the signature Singju texture. Tapered hopper feeds cabbage into the rotating blade drum. Output drops into collection bin. Capacity ~150 kg/hr.',
+    budget:'Vegetable slicer Rs.20K | Prep table Rs.4K',
+    eq:[
+      { t:'box',  n:'Slicer Housing',   x:-11, z: 7,    w:5.5, h:5,   d:4.5,         c:0x607d8b },
+      { t:'cyl',  n:'Blade Drum',       x:-11, z: 7,    r:1.8, h:4.6,                c:0x455a64 },
+      { t:'frus', n:'Feed Hopper',      x: -6, z: 8,    rt:1.8,rb:0.7,h:3,           c:0xffb74d, y:7.76 },
+      { t:'disc', n:'Hopper Rim',       x: -6, z: 8,    r:1.9, h:0.2,                c:0xff8f00, y:9.26 },
+      { t:'box',  n:'Motor Base',       x:-11, z: 7,    w:5.8, h:0.6, d:4.8,         c:0x37474f, y:0.56 },
+      { t:'box',  n:'Output Bin Wall F',x:-17, z: 3.8,  w:3.5, h:2.5, d:0.15,        c:0x78909c },
+      { t:'box',  n:'Output Bin Wall B',x:-17, z: 6.2,  w:3.5, h:2.5, d:0.15,        c:0x78909c },
+      { t:'box',  n:'Output Bin Wall L',x:-18.9,z:5,    w:0.15,h:2.5, d:2.4,         c:0x78909c },
+      { t:'box',  n:'Output Bin Base',  x:-17, z: 5,    w:3.5, h:0.15,d:2.4,         c:0x546e7a },
+      { t:'box',  n:'Prep Table Top',   x: -4, z: 3,    w:6,   h:0.12,d:4,           c:0xd7ccc8, y:2.08 },
+    ]
+  },
+  {
+    name:'3. Hot Water Blanching Vat', fc:0x3a0e0e, hc:'#ef5350',
+    cx:-10, cz:-7.5, w:20, d:13,
+    desc:'HACCP Critical Control Point. Large SS blanching vessel on LPG burner tripod. Boil at 90-95°C for exactly 90 seconds. Exhaust hood vents steam through roof. Log batch number, temperature, and dwell time for every batch. Kills bacteria, locks colour, halts enzyme browning.',
+    budget:'SS Blanching Kettle 120L Rs.12K | Steam hood Rs.6K | LPG tripod burner Rs.5K | Temp logger Rs.2K',
+    eq:[
+      { t:'box',  n:'Burner Leg A',     x:-11.5,z:-4.5, w:0.2, h:1.2, d:0.2,         c:0x424242 },
+      { t:'box',  n:'Burner Leg B',     x: -8.5,z:-4.5, w:0.2, h:1.2, d:0.2,         c:0x424242 },
+      { t:'box',  n:'Burner Leg C',     x:-10,  z:-7,   w:0.2, h:1.2, d:0.2,         c:0x424242 },
+      { t:'disc', n:'Burner Ring',      x:-10,  z:-5,   r:2.8, h:0.2,                c:0xff5722, y:1.36 },
+      { t:'frus', n:'Kettle Body',      x:-10,  z:-5,   rt:3.2,rb:2.8,h:4.0,         c:0xef9a9a, y:3.36 },
+      { t:'disc', n:'Kettle Rim',       x:-10,  z:-5,   r:3.4, h:0.25,               c:0xe0e0e0, y:5.49 },
+      { t:'disc', n:'Kettle Lid',       x:-10,  z:-5,   r:3.25,h:0.2,                c:0xbdbdbd, y:5.61 },
+      { t:'cyl',  n:'Steam Pipe',       x:-10,  z:-5,   r:0.35,h:3.5,                c:0xb0bec5, y:7.6 },
+      { t:'frus', n:'Steam Hood',       x:-10,  z:-5,   rt:1.6,rb:4.5,h:1.8,         c:0xe0e0e0, y:10.1 },
+      { t:'disc', n:'Hood Cap',         x:-10,  z:-5,   r:1.5, h:0.2,                c:0xbdbdbd, y:11.1 },
+      { t:'box',  n:'Temp Logger',      x:-19.5,z:-5,   w:0.3, h:2.5, d:1.5,         c:0xfff9c4, y:3.5 },
+    ]
+  },
+  {
+    name:'4. Ice Bath Chilling Vat', fc:0x082030, hc:'#26c6da',
+    cx:-10, cz:-20.5, w:20, d:13,
+    desc:'Rectangular SS cold water tank with crushed ice. Blanched cabbage submerged within seconds of leaving the kettle, dropping from 95°C to below 20°C in under 5 minutes — stopping the cooking process. Ice maker replenishes crushed ice continuously.',
+    budget:'SS Ice bath tank 200L Rs.8K | Under-bench ice maker Rs.20K',
+    eq:[
+      { t:'box',  n:'Tank Front Wall',  x:-10,  z:-14.8,w:13,  h:3,   d:0.2,         c:0x0277bd },
+      { t:'box',  n:'Tank Back Wall',   x:-10,  z:-23.2,w:13,  h:3,   d:0.2,         c:0x0277bd },
+      { t:'box',  n:'Tank Left Wall',   x:-16.6,z:-19,  w:0.2, h:3,   d:8.2,         c:0x0277bd },
+      { t:'box',  n:'Tank Right Wall',  x: -3.4,z:-19,  w:0.2, h:3,   d:8.2,         c:0x0277bd },
+      { t:'box',  n:'Tank Floor',       x:-10,  z:-19,  w:12.6,h:0.2, d:8.0,         c:0x01579b },
+      { t:'box',  n:'Ice Water Surface',x:-10,  z:-19,  w:12.4,h:0.12,d:7.8,         c:0x0288d1, y:3.14 },
+      { t:'box',  n:'Ice Chunk A',      x:-12,  z:-17,  w:1.2, h:0.5, d:0.8,         c:0xe1f5fe, y:3.35 },
+      { t:'box',  n:'Ice Chunk B',      x: -8,  z:-21,  w:1.0, h:0.4, d:1.0,         c:0xe3f2fd, y:3.35 },
+      { t:'box',  n:'Ice Chunk C',      x:-14,  z:-20,  w:0.8, h:0.5, d:0.6,         c:0xe1f5fe, y:3.35 },
+      { t:'box',  n:'Ice Maker Body',   x: -3,  z:-25.5,w:3.5, h:4.5, d:3.5,         c:0xeceff1 },
+      { t:'box',  n:'Ice Maker Handle', x: -1.25,z:-25.5,w:0.1,h:0.3,d:1.0,         c:0x90a4ae, y:3.5 },
+    ]
+  },
+  {
+    name:'5. Surface Air-Drying Racks', fc:0x102010, hc:'#aed581',
+    cx:-10, cz:-33.5, w:20, d:13,
+    desc:'Multi-tier SS mesh rack frames. Ice-chilled cabbage spread thin across mesh shelves. Box dehumidifiers pull ambient moisture down through the mesh. 5-10 min gravity drain, then 2-3 hr surface pre-dry before product crosses through the pass-through window to the dehydrator.',
+    budget:'SS mesh rack x3 Rs.6K | Box dehumidifier x2 Rs.8K',
+    eq:[
+      { t:'box',  n:'Dehumidifier A Body', x:-17, z:-37.5,w:4,   h:2.8, d:3.5,       c:0x5c6bc0 },
+      { t:'box',  n:'Dehumidifier A Panel',x:-15.1,z:-37.5,w:0.1,h:2.5, d:3,         c:0x3949ab, y:1.67 },
+      { t:'box',  n:'Dehumidifier B Body', x:-11, z:-37.5,w:4,   h:2.8, d:3.5,       c:0x5c6bc0 },
+      { t:'box',  n:'Dehumidifier B Panel',x: -9.1,z:-37.5,w:0.1,h:2.5, d:3,        c:0x3949ab, y:1.67 },
+      { t:'box',  n:'Drain Channel',       x: -3, z:-36,  w:1,   h:0.3, d:8,         c:0x0a4a8a },
+    ]
+  },
+  {
+    name:'6. Binder Mix & Molding', fc:0x2a1808, hc:'#ffcc80',
+    cx:10, cz:-33.5, w:20, d:13,
+    desc:'Product arrives through the Pass-Through Window. Besan flour binder, Ngari powder, and spice blend added to surface-dried cabbage in SS bowls. Mixed by hand in gloves. Pressed into flat multi-cavity SS tray molds to standardise portion size before dehydrating.',
+    budget:'SS mixing bowls x4 Rs.2K | SS worktables x2 Rs.8K | Tray molds x20 Rs.4K',
+    eq:[
+      { t:'box',  n:'Worktable A Top',  x: 5, z:-31,    w:8,   h:0.12,d:5,           c:0xd7ccc8, y:2.08 },
+      { t:'box',  n:'Worktable A Shelf',x: 5, z:-31,    w:7.6, h:0.1, d:4.6,         c:0xbcaaa4, y:1.0 },
+      { t:'box',  n:'Worktable B Top',  x:14, z:-31,    w:6,   h:0.12,d:5,           c:0xd7ccc8, y:2.08 },
+      { t:'frus', n:'Mixing Bowl A',    x: 3, z:-30.5,  rt:0.9,rb:0.7,h:0.6,         c:0xeceff1, y:2.56 },
+      { t:'frus', n:'Mixing Bowl B',    x: 5, z:-30.5,  rt:0.9,rb:0.7,h:0.6,         c:0xeceff1, y:2.56 },
+      { t:'frus', n:'Mixing Bowl C',    x: 7, z:-30.5,  rt:0.9,rb:0.7,h:0.6,         c:0xeceff1, y:2.56 },
+      { t:'box',  n:'Tray Mold Stack',  x:14, z:-30.5,  w:5,   h:0.8, d:4,           c:0xffab91, y:2.66 },
+      { t:'box',  n:'Besan Bag',        x:16, z:-38,    w:1.5, h:1.5, d:1.5,         c:0xfff9c4, y:2.01 },
+    ]
+  },
+  {
+    name:'7. Commercial Food Dehydrator', fc:0x1a0e04, hc:'#ffb74d',
+    cx:10, cz:-20.5, w:20, d:13,
+    desc:'THE KEY to 12-month shelf life. Tall SS cabinet dehydrators run at 45-55°C for 8-12 hours, reducing moisture from ~30% down to below 5% (shelf-stable). Each cabinet holds 10-14 trays. Load trays in the evening, unload dried product next morning.',
+    budget:'Commercial dehydrator cabinet x2 Rs.40-55K each | Tray cart Rs.3K | Temp/RH controller Rs.3K',
+    eq:[
+      { t:'box',  n:'Dehydrator A Body',      x:17,  z:-18, w:5,   h:8.5, d:11,      c:0xf57c00 },
+      { t:'box',  n:'Dehydrator A Door Seam', x:14.65,z:-18,w:0.08,h:8,   d:10.5,    c:0xe65100, y:4.51 },
+      { t:'box',  n:'Dehydrator A Handle',    x:14.7,z:-18, w:0.15,h:1.5, d:0.3,     c:0xd7ccc8, y:5.5 },
+      { t:'box',  n:'Vent Slot A1',           x:17,  z:-13.6,w:4,  h:0.15,d:0.8,    c:0xe65100, y:8.92 },
+      { t:'box',  n:'Vent Slot A2',           x:17,  z:-14.8,w:4,  h:0.15,d:0.8,    c:0xe65100, y:8.92 },
+      { t:'box',  n:'Temp/RH Display',        x:19.6,z:-14, w:0.2, h:1.5, d:2,       c:0xfff9c4, y:7.5 },
+      { t:'box',  n:'Tray Cart Frame',        x: 9,  z:-21, w:2.8, h:5,   d:3.5,     c:0x9e9e9e },
+      { t:'box',  n:'Tray Shelf 1',           x: 9,  z:-21, w:2.6, h:0.08,d:3.3,    c:0xbdbdbd, y:1.8 },
+      { t:'box',  n:'Tray Shelf 2',           x: 9,  z:-21, w:2.6, h:0.08,d:3.3,    c:0xbdbdbd, y:3.0 },
+      { t:'box',  n:'Tray Shelf 3',           x: 9,  z:-21, w:2.6, h:0.08,d:3.3,    c:0xbdbdbd, y:4.2 },
+      { t:'cyl',  n:'Wheel FL',               x: 7.7,z:-22.4,r:0.2,h:0.2,           c:0x424242 },
+      { t:'cyl',  n:'Wheel FR',               x:10.3,z:-22.4,r:0.2,h:0.2,           c:0x424242 },
+      { t:'cyl',  n:'Wheel BL',               x: 7.7,z:-19.6,r:0.2,h:0.2,           c:0x424242 },
+      { t:'cyl',  n:'Wheel BR',               x:10.3,z:-19.6,r:0.2,h:0.2,           c:0x424242 },
+    ]
+  },
+  {
+    name:'8. Chamber Vacuum Sealer', fc:0x08161c, hc:'#4dd0e1',
+    cx:10, cz:-7.5, w:20, d:13,
+    desc:'Industrial chamber vacuum sealer. Full pouch placed inside the chamber; oxygen evacuated; barrier pouch heat-sealed. Acrylic dome lid lifts up. Every pack labelled: product name, 100g net weight, batch number, MFD, BBD 12 months, FSSAI licence number, ingredients, allergen (fish from Ngari).',
+    budget:'Chamber vacuum sealer Rs.35K | Label printer Rs.8K | Barrier film Rs.5K per 1000 packs',
+    eq:[
+      { t:'box',  n:'Sealer Body',      x: 8,  z:-6,    w:7,   h:3.5, d:6,           c:0x00838f },
+      { t:'box',  n:'Chamber Cavity',   x: 8,  z:-6,    w:5.5, h:0.12,d:4.5,         c:0x004d40, y:3.82 },
+      { t:'dome', n:'Acrylic Dome Lid', x: 8,  z:-6,    r:2.5,                        c:0x80deea, y:3.76 },
+      { t:'box',  n:'Control Panel',    x: 8,  z:-9.1,  w:6.5, h:2.5, d:0.15,        c:0x263238, y:1.51 },
+      { t:'box',  n:'Panel Screen',     x: 9,  z:-9.15, w:1.5, h:1,   d:0.1,         c:0x4fc3f7, y:2.0 },
+      { t:'box',  n:'Label Printer',    x:17,  z:-8,    w:2.5, h:3,   d:2.5,         c:0xeeeeee },
+      { t:'box',  n:'Conveyor Belt',    x: 4,  z:-11,   w:6,   h:0.2, d:1.8,         c:0x37474f, y:1.2 },
+      { t:'cyl',  n:'Conveyor Drum L',  x: 1.1,z:-11,   r:0.5, h:1.8,               c:0x546e7a, y:1.2 },
+      { t:'cyl',  n:'Conveyor Drum R',  x: 6.9,z:-11,   r:0.5, h:1.8,               c:0x546e7a, y:1.2 },
+      { t:'cyl',  n:'Film Roll',        x:17,  z:-3,    r:0.7, h:2,                  c:0xe0e0e0, y:4.76 },
+    ]
+  },
+  {
+    name:'9. Spice & Ngari Kit Assembly', fc:0x101c10, hc:'#c5e1a5',
+    cx:10, cz:5.5, w:20, d:13,
+    desc:'Long SS assembly worktable. Vacuum-sealed cabbage packs combined with a spice sachet from Station 10 and placed into a retail box. Employee folds and seals cartons, stacks finished boxes near the Storage door. Each retail box = 1 cabbage vacuum pouch + 1 spice sachet kit.',
+    budget:'Assembly worktable Rs.5K | Carton sealer Rs.4K',
+    eq:[
+      { t:'box',  n:'Assembly Table Top',x: 8, z: 8,    w:14,  h:0.12,d:3.5,         c:0xd7ccc8, y:2.08 },
+      { t:'box',  n:'Table Shelf',        x: 8, z: 8,   w:13.6,h:0.1, d:3.1,         c:0xbcaaa4, y:0.9 },
+      { t:'box',  n:'Carton Sealer Body', x: 3, z: 3.5, w:3.5, h:3,   d:3,           c:0x455a64 },
+      { t:'box',  n:'Carton Seal Arm',    x: 3, z: 3.5, w:3.5, h:0.3, d:3,           c:0x607d8b, y:4.41 },
+      { t:'box',  n:'Retail Box Stack A', x:17, z: 4,   w:3,   h:3,   d:3,           c:0xa1887f },
+      { t:'box',  n:'Retail Box Stack B', x:17, z: 7.5, w:3,   h:3,   d:3,           c:0x8d6e63 },
+      { t:'box',  n:'Label Dispenser',    x:17, z:10.5, w:2.5, h:2,   d:2,           c:0xfff9c4 },
+    ]
+  },
+  {
+    name:'10. Spice Mill Room (Isolated)', fc:0x3a1400, hc:'#ff7043',
+    cx:10, cz:18.5, w:20, d:13,
+    desc:'ISOLATED CUBICLE containing chili dust and spice powder. High-speed mills process: Ngari (fermented fish), dried green chilli, roasted Perilla seeds, Maroi nakuppi (local chive). Output = precisely weighed spice sachets passed to Assembly (9). Exhaust fan + HEPA filter prevents cross-contamination.',
+    budget:'Spice grinder x2 Rs.8K | Mixer Rs.10K | Exhaust fan + HEPA Rs.5K | Partition Rs.6K',
+    eq:[
+      { t:'box',  n:'Cubicle S-Wall',   x: 8,   z:25.1, w:14,  h:WH,  d:0.3,        c:0x4e342e },
+      { t:'box',  n:'Cubicle E-Wall',   x:19.7, z:19.5, w:0.3, h:WH,  d:11,         c:0x4e342e },
+      { t:'cyl',  n:'Grinder A Body',   x: 6,   z:20,   r:1.5, h:3.5,               c:0x880e4f },
+      { t:'frus', n:'Grinder A Hopper', x: 6,   z:20,   rt:2.0,rb:0.8,h:2.5,        c:0xbf360c, y:5.51 },
+      { t:'disc', n:'Grinder A Rim',    x: 6,   z:20,   r:2.1, h:0.15,              c:0xd32f2f, y:6.63 },
+      { t:'cyl',  n:'Grinder B Body',   x:11,   z:20,   r:1.5, h:3.5,               c:0x880e4f },
+      { t:'frus', n:'Grinder B Hopper', x:11,   z:20,   rt:2.0,rb:0.8,h:2.5,        c:0xbf360c, y:5.51 },
+      { t:'disc', n:'Grinder B Rim',    x:11,   z:20,   r:2.1, h:0.15,              c:0xd32f2f, y:6.63 },
+      { t:'box',  n:'Spice Mixer Body', x:16,   z:20.5, w:3.2, h:3.5, d:3,          c:0xf57c00 },
+      { t:'frus', n:'Mixer Bowl',       x:16,   z:20.5, rt:1.4,rb:1.0,h:1.5,        c:0xffb74d, y:4.26 },
+      { t:'cyl',  n:'Mixer Arm',        x:16,   z:20.5, r:0.15,h:2.5,               c:0x9e9e9e, y:5.5 },
+      { t:'disc', n:'Exhaust Fan',      x:19.6, z:19,   r:0.7, h:0.3,               c:0x607d8b, y:8 },
+    ]
+  },
+];
+
+ZONES.forEach(addZone);
+
+// ── Post-zone compound helpers ────────────────────────────────────────────────
+// Pallet racks in zone (B)
+addRack( 4,27,2.2,4,5.5,3,0x5d4037,0x8d6e63);
+addRack( 9,27,2.2,4,5.5,3,0x5d4037,0x8d6e63);
+addRack(14,27,2.2,4,5.5,3,0x5d4037,0x8d6e63);
+
+// Drying racks in zone 5
+[[-17,-31],[-11,-31],[-5,-31]].forEach(function(p){
+  var x=p[0],z=p[1];
+  [[1.8,2.2],[1.8,-2.2],[-1.8,2.2],[-1.8,-2.2]].forEach(function(o){
+    var post=mkCyl(0.06,6.0,0x757575); post.position.set(x+o[0],3.26,z+o[1]); scene.add(post);
+  });
+  [1.1,2.4,3.7,5.0].forEach(function(sy){
+    var shelf=mkBox(3.4,0.06,4.2,0x9e9e9e); shelf.position.set(x,sy+0.26,z); scene.add(shelf);
+  });
+});
+
+// Table legs
+addLegs(-4,   3,  6,  4, 2.0, 0x546e7a);
+addLegs( 5, -31,  8,  5, 2.0, 0x78909c);
+addLegs(14, -31,  6,  5, 2.0, 0x78909c);
+addLegs( 8,   8, 14, 3.5,2.0, 0x78909c);
+addLegs( 6,  33,  5,  3, 2.0, 0x3e2723);
+addLegs(-13,29.5, 4,  2, 2.0, 0x455a64);
+
+// ── Row separator walls ───────────────────────────────────────────────────────
+var rsMat=new THREE.MeshLambertMaterial({color:0x263238,transparent:true,opacity:0.15,side:THREE.DoubleSide});
+var rsEdge=new THREE.LineBasicMaterial({color:0x37474f,transparent:true,opacity:0.28});
+[12,-1,-14,-27].forEach(function(z){
+  var g=new THREE.BoxGeometry(40,WH,0.2);
+  var m=new THREE.Mesh(g,rsMat); m.position.set(0,WH/2,z); scene.add(m);
+  var e=new THREE.LineSegments(new THREE.EdgesGeometry(g),rsEdge); e.position.set(0,WH/2,z); scene.add(e);
+});
+
+// ── Flow arrows ───────────────────────────────────────────────────────────────
+var wetArr=new THREE.MeshBasicMaterial({color:0x29b6f6,transparent:true,opacity:0.6});
+var dryArr=new THREE.MeshBasicMaterial({color:0xff8a65,transparent:true,opacity:0.6});
+var coneG=new THREE.ConeGeometry(0.68,1.7,8);
+[24,18.5,12,5.5,-1,-7.5,-14,-20.5,-27,-33.5].forEach(function(z){
+  var a=new THREE.Mesh(coneG,wetArr); a.position.set(-10,0.85,z); a.rotation.x=Math.PI/2; scene.add(a);
+});
+[-33.5,-27,-20.5,-14,-7.5,-1,5.5,12,18.5,24].forEach(function(z){
+  var a=new THREE.Mesh(coneG,dryArr); a.position.set(10,0.85,z); a.rotation.x=-Math.PI/2; scene.add(a);
+});
+var ptA=new THREE.Mesh(new THREE.ConeGeometry(0.8,2.0,8),
+  new THREE.MeshBasicMaterial({color:0x4dd0e1,transparent:true,opacity:0.85}));
+ptA.position.set(0,1.5,-33.5); ptA.rotation.z=-Math.PI/2; scene.add(ptA);
+
+// ── Flow path lines ───────────────────────────────────────────────────────────
+var wetPts=[24,18.5,12,5.5,-1,-7.5,-14,-20.5,-27,-33.5,-40].map(function(z){return new THREE.Vector3(-10,0.5,z);});
+scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(wetPts),
+  new THREE.LineBasicMaterial({color:0x29b6f6,transparent:true,opacity:0.25})));
+scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(
+  [new THREE.Vector3(-10,0.5,-33.5),new THREE.Vector3(10,0.5,-33.5)]),
+  new THREE.LineBasicMaterial({color:0x4dd0e1,transparent:true,opacity:0.5})));
+var dryPts=[-33.5,-27,-20.5,-14,-7.5,-1,5.5,12,18.5,24,27.5].map(function(z){return new THREE.Vector3(10,0.5,z);});
+scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(dryPts),
+  new THREE.LineBasicMaterial({color:0xff8a65,transparent:true,opacity:0.25})));
+
+// ── Corner markers ────────────────────────────────────────────────────────────
+var csg=new THREE.SphereGeometry(0.38,8,8);
+var csMat=new THREE.MeshBasicMaterial({color:0xffeb3b});
+[[-20,-40],[20,-40],[-20,40],[20,40]].forEach(function(pt){
+  var s=new THREE.Mesh(csg,csMat); s.position.set(pt[0],0.5,pt[1]); scene.add(s);
+});
+
+// ── Tap / click interaction ───────────────────────────────────────────────────
+var raycaster = new THREE.Raycaster();
+var mouse     = new THREE.Vector2();
+var popup     = document.getElementById('popup');
+var pname     = document.getElementById('pname');
+var pdesc     = document.getElementById('pdesc');
+var pbudget   = document.getElementById('pbudget');
+var hint      = document.getElementById('hint');
+var activeMesh = null;
+var hintDone   = false;
+
+function openPopup(z, mesh) {
+  activeMesh = mesh;
+  pname.textContent   = z.name;
+  pdesc.textContent   = z.desc;
+  pbudget.textContent = 'Est. cost: ' + z.budget;
+  popup.style.setProperty('--hc', z.hc || '#4fc3f7');
+  popup.classList.add('show');
+  if (!hintDone) { hint.classList.add('gone'); hintDone = true; }
+}
+function closePopup() {
+  activeMesh = null;
+  popup.classList.remove('show');
+}
+
+function handleTap(cx, cy) {
+  mouse.x =  (cx / innerWidth)  * 2 - 1;
+  mouse.y = -(cy / innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  var hits = raycaster.intersectObjects(zoneFloors);
+  if (hits.length > 0) {
+    var mesh = hits[0].object;
+    if (mesh === activeMesh) {
+      closePopup();          // same zone: toggle off
+    } else {
+      openPopup(mesh.userData.zone, mesh);   // new zone: switch
+    }
+  } else {
+    closePopup();            // tapped empty space: close
+  }
+}
+
+// Touch: fire only if finger didn't move (i.e., it's a tap, not a drag)
+var tsX = 0, tsY = 0;
+renderer.domElement.addEventListener('touchstart', function(e) {
+  tsX = e.touches[0].clientX;
+  tsY = e.touches[0].clientY;
+}, { passive: true });
+renderer.domElement.addEventListener('touchend', function(e) {
+  var dx = e.changedTouches[0].clientX - tsX;
+  var dy = e.changedTouches[0].clientY - tsY;
+  if (Math.sqrt(dx*dx + dy*dy) < 12) {
+    handleTap(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+  }
+}, { passive: true });
+
+// Desktop click
+renderer.domElement.addEventListener('click', function(e) {
+  handleTap(e.clientX, e.clientY);
+});
+
+window.addEventListener('resize', function() {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+(function animate() {
+  requestAnimationFrame(animate);
+  orb.update();
+  renderer.render(scene, camera);
+})();
+</script>
+</body>
+</html>
